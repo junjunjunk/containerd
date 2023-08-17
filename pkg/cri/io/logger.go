@@ -37,6 +37,7 @@ const (
 	// timestampFormat is the timestamp format used in CRI logging format.
 	timestampFormat = time.RFC3339Nano
 	// defaultBufSize is the default size of the read buffer in bytes.
+	// 1度に読み取るバッファのサイズが 4KiB になっていてる
 	defaultBufSize = 4096
 )
 
@@ -86,7 +87,7 @@ func readLine(b *bufio.Reader) (line []byte, isPrefix bool, err error) {
 			}
 			line = line[:len(line)-1]
 		}
-		return line, true, nil
+		return line, true, nil // 改行が見つかったらログファイルに書き込む
 	}
 
 	if len(line) == 0 {
@@ -165,6 +166,8 @@ func redirectLogs(path string, rc io.ReadCloser, w io.Writer, s StreamType, maxL
 			buf = append(buf, l)
 			length += len(l)
 		}
+		//古い logger がクローズされると、その logger の Read 元から EOF が返るようになるため、
+		//以下のコードブロックに入り、 stop = true 状態となる。
 		if err != nil {
 			if err == io.EOF {
 				logrus.Debugf("Getting EOF from stream %q while redirecting to log file %q", s, path)
@@ -195,10 +198,13 @@ func redirectLogs(path string, rc io.ReadCloser, w io.Writer, s StreamType, maxL
 		if isPrefix {
 			continue
 		}
+		//  The partial log line entry is prefixed with P
+		// and the remaining half of the log line is prefixed with F.
 		if stop {
 			// readLine only returns error when the message doesn't
 			// end with a newline, in that case it should be treated
 			// as a partial line.
+			// newlineで終わってないものはPartial logとしてファイルに書き込む
 			writeLineBuffer(partial, buf)
 		} else {
 			writeLineBuffer(full, buf)

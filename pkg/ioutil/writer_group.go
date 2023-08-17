@@ -78,7 +78,7 @@ func (g *WriterGroup) Write(p []byte) (int, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	for k, w := range g.writers {
-		n, err := w.Write(p)
+		n, err := w.Write(p) //WriterGroupのWriteメソッドを経由して呼び出される
 		if err == nil && len(p) == n {
 			continue
 		}
