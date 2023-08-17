@@ -26,6 +26,7 @@ import (
 
 // ReopenContainerLog asks the cri plugin to reopen the stdout/stderr log file for the container.
 // This is often called after the log file has been rotated.
+// ローテーション後のファイルをオープンし直す
 func (c *criService) ReopenContainerLog(ctx context.Context, r *runtime.ReopenContainerLogRequest) (*runtime.ReopenContainerLogResponse, error) {
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
@@ -37,10 +38,14 @@ func (c *criService) ReopenContainerLog(ctx context.Context, r *runtime.ReopenCo
 	}
 
 	// Create new container logger and replace the existing ones.
+	// ログのローテーションが発生し、新しい Logger が作られる
 	stdoutWC, stderrWC, err := c.createContainerLoggers(container.LogPath, container.Config.GetTty())
 	if err != nil {
 		return nil, err
 	}
+
+	// 古い Logger から新しい Logger に切り替わる
+	// 切り替え後に古い Logger の PipeWriter に対して Close() を呼ぶ
 	oldStdoutWC, oldStderrWC := container.IO.AddOutput("log", stdoutWC, stderrWC)
 	if oldStdoutWC != nil {
 		oldStdoutWC.Close()

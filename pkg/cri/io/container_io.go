@@ -14,6 +14,8 @@
    limitations under the License.
 */
 
+// container runtime interface
+
 package io
 
 import (
@@ -35,12 +37,22 @@ func streamKey(id, name string, stream StreamType) string {
 	return strings.Join([]string{id, name, string(stream)}, "-")
 }
 
+// stdoutGroup が使用している WriterGroup では Write() が呼ばれている最中はロックが掛かるようになっている: https://github.com/containerd/containerd/blob/v1.5.13/pkg/ioutil/writer_group.go#L78-L79
+// 同様にstdoutGroup 内の writer を切り替えるときもロックを取得しようとします: https://github.com/containerd/containerd/blob/v1.5.13/pkg/ioutil/writer_group.go#L45-L46
+// そのため、両者で排他制御が行われており、Write() が完全に完了したあとに stdoutGroup の切り替えが発生するため、Write() で取りこぼしが起きるバイト列は存在しない。
+// よってローテーション時にログの欠損が起きない。
+
 // ContainerIO holds the container io.
 type ContainerIO struct {
 	id string
 
+	// FIFOSet is a set of file paths to FIFOs for a task's standard IO streams
 	fifos *cio.FIFOSet
+
 	*stdioPipes
+	// stdin  io.WriteCloser
+	// stdout io.ReadCloser
+	// stderr io.ReadCloser
 
 	stdoutGroup *cioutil.WriterGroup
 	stderrGroup *cioutil.WriterGroup
@@ -102,13 +114,23 @@ func (c *ContainerIO) Config() cio.Config {
 	return c.fifos.Config
 }
 
+// コンテナのstdoutとstderrの内容を対応するstdoutGroupとstderrGroupにパイプし、非同期で処理する.
 // Pipe creates container fifos and pipe container output
 // to output stream.
 func (c *ContainerIO) Pipe() {
-	wg := c.closer.wg
+	wg := c.closer.wg // sync.WaitGroup
+
+	// if stdout exists
 	if c.stdout != nil {
 		wg.Add(1)
+
+		// pipe stdout of container by copying c.stdout to c.stdoutGroup
+		// Write writes data into each writer in stdoutGroup's Writers.
 		go func() {
+			// Copy copies from src to dst until either EOF is reached on src or an error occurs.
+			// the buffer of io.Copy is always 32KB (it is hard coded)
+			// io.Copyがファイルの内容をすべてコピーするまで終わらない
+			// io.Copyを通してstdoutGroupでWriteメソッドが呼ばれる
 			if _, err := io.Copy(c.stdoutGroup, c.stdout); err != nil {
 				log.L.WithError(err).Errorf("Failed to pipe stdout of container %q", c.id)
 			}

@@ -20,7 +20,7 @@ import "io"
 
 // writeCloseInformer wraps a reader with a close function.
 type wrapReadCloser struct {
-	reader *io.PipeReader
+	reader *io.PipeReader //PipeWriterの書き込んだ内容を読み込む
 	writer *io.PipeWriter
 }
 
